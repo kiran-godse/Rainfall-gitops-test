@@ -1,0 +1,259 @@
+name: Test Workflow
+
+on:
+  discussion:
+    types:
+      - created
+
+jobs:
+  override_presence:
+    if: >-
+      github.event.discussion.category.name == 'Prompt'
+    runs-on: self-hosted
+    outputs:
+      override_status: ${{ steps.override_validation.outputs.override_status }}
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: override_check
+        id: override_validation
+        uses: ./actions/discussionworkflow/override/override_test
+      
+      - name: print override status
+        run: echo "${{steps.override_validation.outputs.override_status}}"
+
+  override_pass:
+    if: needs.override_presence.outputs.override_status  == 'present' 
+    runs-on: self-hosted
+    outputs:
+      if_missing: ${{ steps.get_override_info.outputs.if_missing }}
+      Missing: ${{ steps.get_override_info.outputs.Missing }}
+      override_title: ${{ steps.get_override_info.outputs.override_title }}
+      override_labels: ${{ steps.get_override_info.outputs.override_labels }}
+      override_body: ${{ steps.get_override_info.outputs.override_body }}
+      label_id: ${{ steps.get_override_info.outputs.label_id }}
+      override_repo_id: ${{ steps.get_override_info.outputs.override_repo_id }}
+      
+    needs: override_presence
+    steps:
+      - name: get information from override section
+        id: get_override_info
+        uses: ./actions/discussionworkflow/override/pass_override
+        with:
+          PAT: ${{ secrets.GITHUB_TOKEN }}
+          repo_name: ${{ github.repository }}
+
+      - name: print override info
+        run: |
+           echo "${{steps.get_override_info.outputs.if_missing}}"
+           echo "${{steps.get_override_info.outputs.override_title}}"
+           echo "${{steps.get_override_info.outputs.override_labels}}"
+           echo "${{steps.get_override_info.outputs.override_body}}"
+           echo "${{steps.get_override_info.outputs.label_id}}"
+  
+  everything-ok:
+    needs: override_pass
+    if: needs.override_pass.outputs.if_missing  == 0
+    runs-on: self-hosted
+    steps:
+
+      - name: Use Chatgpt Api
+        id: chatgpt
+        uses: ./actions/gptworkflow/gptapi
+        with:
+          api_key: ${{ secrets.API_KEY }}
+          prompt: ${{ needs.override_pass.outputs.override_body }}
+          
+
+      - name: Create a new GitHub Discussion
+        id: create-discussion
+        uses: abirismyname/create-discussion@v1.1.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          title: ${{ needs.override_pass.outputs.override_title }}
+          body: ${{ steps.chatgpt.outputs.body }}
+          repository-id: ${{ needs.override_pass.outputs.override_repo_id }}
+          category-id: DIC_kwDOKIIfcc4CYvYw
+          
+      - run: |
+          echo "${{ steps.create-discussion.outputs.discussion-id }}"
+          echo "${{ steps.create-discussion.outputs.discussion-url }}"
+
+      - name: Add label new GitHub Discussion    
+        uses: octokit/graphql-action@v2.x
+        id: add_label
+        with:
+          query: |
+            mutation {
+              addLabelsToLabelable(
+                input:{
+                  labelableId: "${{ steps.create-discussion.outputs.discussion-id }}"
+                  labelIds: ${{ needs.override_pass.outputs.label_id }}
+                }
+              ) {
+                clientMutationId
+              }
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
+
+  everything-not-ok:
+    needs: override_pass
+    if: needs.override_pass.outputs.if_missing  != 0
+    runs-on: self-hosted
+    steps:
+
+      - name: Create a new GitHub Discussion
+        id: create-discussion
+        uses: abirismyname/create-discussion@v1.1.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          title: "ERROR"
+          body: ${{ needs.override_pass.outputs.Missing }}
+          repository-id: ${{ needs.override_pass.outputs.override_repo_id }}
+          category-id: DIC_kwDOKIIfcc4CYvYw
+
+      - name: Add label new GitHub Discussion    
+        uses: octokit/graphql-action@v2.x
+        id: add_label
+        with:
+          query: |
+            mutation {
+              addLabelsToLabelable(
+                input:{
+                  labelableId: "${{ steps.create-discussion.outputs.discussion-id }}"
+                  labelIds: ["LA_kwDOKIIfcc8AAAABXPsDjg"]
+                }
+              ) {
+                clientMutationId
+              }
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+  
+  override_absent:
+    if: needs.override_presence.outputs.override_status  == 'absent' 
+    runs-on: self-hosted
+    needs: override_presence
+    outputs:
+      prompt_validation: ${{ steps.prompt_validation.outputs.validation }}
+      invalid_reasons: ${{ steps.prompt_validation.outputs.invalid_reasons }}
+      disc_body: ${{ steps.prompt.outputs.disc_body }}
+      disc_title: ${{ steps.prompt.outputs.disc_title }}
+      repo_ID: ${{ steps.prompt.outputs.repo_ID }}
+      disc_labels: ${{ steps.prompt.outputs.disc_labels }}
+      disc_ID : ${{ steps.prompt.outputs.disc_ID }}
+      labels_ID : ${{ steps.label_id.outputs.label_id }}
+      disc_num : ${{ steps.prompt.outputs.disc_num }}
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Get discussion information
+        id: prompt
+        uses: ./actions/discussionworkflow/eventmetadata
+        with:
+          PAT: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validation prompt with schema
+        uses: ./actions/discussionworkflow/promptvalidation
+        id: prompt_validation
+        with:
+          body: ${{ steps.prompt.outputs.disc_body }}
+          title: ${{ steps.prompt.outputs.disc_title }}
+          labels: ${{ steps.prompt.outputs.disc_labels }}
+
+      - name: Get discussion labels ids
+        uses: ./actions/discussionworkflow/labelsinfo
+        id: label_id
+        with:
+          PAT: ${{ secrets.GITHUB_TOKEN }}
+          disc_labels: ${{ steps.prompt.outputs.disc_labels }}    
+
+  Blurb_Discussion:
+    if: needs.override_absent.outputs.prompt_validation  == 'valid' 
+    runs-on: self-hosted
+    needs: override_absent
+    steps:
+
+      - name: Use Chatgpt Api
+        id: chatgpt
+        uses: ./actions/gptworkflow/gptapi
+        with:
+          api_key: ${{ secrets.API_KEY }}
+          prompt: ${{ needs.override_absent.outputs.disc_body }}
+          
+      - name: Debug Labels
+        run: echo "Labels:${{ needs.override_absent.outputs.disc_labels }}"
+
+      - name: Create a new GitHub Discussion
+        id: create-discussion
+        uses: abirismyname/create-discussion@v1.1.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          title: ${{ needs.override_absent.outputs.disc_title }}
+          body: ${{ steps.chatgpt.outputs.body }}
+          repository-id: ${{ needs.override_absent.outputs.repo_ID }}
+          category-id: DIC_kwDOKIIfcc4CYvYw
+          
+      - run: |
+          echo "${{ steps.create-discussion.outputs.discussion-id }}"
+          echo "${{ steps.create-discussion.outputs.discussion-url }}"
+
+      - name: Add label new GitHub Discussion    
+        uses: octokit/graphql-action@v2.x
+        id: add_label
+        with:
+          query: |
+            mutation {
+              addLabelsToLabelable(
+                input:{
+                  labelableId: "${{ steps.create-discussion.outputs.discussion-id }}"
+                  labelIds: ${{ needs.override_absent.outputs.labels_ID }}
+                }
+              ) {
+                clientMutationId
+              }
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}    
+
+  Discussion:
+    if: needs.override_absent.outputs.prompt_validation  == 'invalid' 
+    runs-on: self-hosted
+    needs: override_absent
+    steps:
+      - name: Create a new GitHub Discussion
+        id: create-error-discussion
+        uses: abirismyname/create-discussion@v1.1.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          title: "ERROR"
+          body: ${{ needs.override_absent.outputs.invalid_reasons }}
+          repository-id: ${{ needs.override_absent.outputs.repo_ID }}
+          category-id: DIC_kwDOKIIfcc4CYvYw
+
+      - name: Add label new GitHub Discussion    
+        uses: octokit/graphql-action@v2.x
+        id: add_label
+        with:
+          query: |
+            mutation {
+              addLabelsToLabelable(
+                input:{
+                  labelableId: "${{ steps.create-error-discussion.outputs.discussion-id }}"
+                  labelIds: ["LA_kwDOKIIfcc8AAAABXPsDjg"]
+                }
+              ) {
+                clientMutationId
+              }
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

@@ -1,0 +1,10 @@
+name: 'Override Checks'
+description: 'Get Discussion Body to check for override condition'
+inputs:
+  github-context:
+    description: 'The GitHub context payload'
+    required: false
+
+runs:
+  using: 'node16'
+  main: 'index.js'

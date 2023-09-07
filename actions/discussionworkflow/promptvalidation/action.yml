@@ -1,0 +1,17 @@
+name: Validate Discussion Information
+description: Validate the input(Prompt) of the created Discussion as per schema.
+
+inputs:
+  body:
+    description: "Discussion Body"
+    required: true
+  title:
+    description: "Discussion Title"
+    required: true
+  labels:
+    description: "Discussion labels"
+    required: true
+
+runs:
+  using: node16
+  main: index.js

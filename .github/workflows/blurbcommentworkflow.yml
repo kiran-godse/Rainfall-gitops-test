@@ -1,0 +1,43 @@
+name: Update Discussion on Comment
+
+on:
+  discussion_comment:
+    types:
+      - created
+
+jobs:
+  update-discussion:
+    if: >-
+      github.event.discussion.category.name == 'Blurb'
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Get discussion information
+        id: discussion-info
+        uses: ./actions/commentworkflow/eventdata
+
+      - name: verify node_id
+        run: echo "${{ steps.discussion-info.outputs.disc_ID}}"    
+      - name: Create a new prompt
+        id: prompt_creation
+        uses: ./actions/gptworkflow/gptprompttemplate
+        with:
+          blurb_body: ${{ steps.discussion-info.outputs.disc_body}}
+          comment_body: ${{ steps.discussion-info.outputs.comment_body}}
+
+      - name: Use Chatgpt Api
+        id: chatgpt
+        uses: ./actions/gptworkflow/gptapi
+        with:
+          api_key: ${{ secrets.API_KEY }}
+          prompt: ${{ steps.prompt_creation.outputs.Newprompt}}
+
+      - name: Update Blurb Discussion
+        id: update_Blurb
+        uses: ./actions/commentworkflow/blurbdiscussion
+        with:
+          PAT:  ${{ secrets.GITHUB_TOKEN }}
+          updatedbody: ${{ steps.chatgpt.outputs.body }}
+          discussionId: ${{ steps.discussion-info.outputs.disc_ID}} 

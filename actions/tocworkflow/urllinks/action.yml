@@ -1,0 +1,10 @@
+name: 'Get Discussion URl'
+description: 'Get Discussion URL when Discussion added to toc category'
+inputs:
+  github-context:
+    description: 'The GitHub context payload'
+    required: true
+
+runs:
+  using: 'node16'
+  main: 'index.js'

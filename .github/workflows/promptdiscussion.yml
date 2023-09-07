@@ -1,0 +1,97 @@
+name: Document Workflow
+
+on:
+  discussion:
+    types:
+      - created
+
+jobs:
+  get_info:
+    if: >-
+      github.event.discussion.category.name == 'Prompt'
+    runs-on: self-hosted
+    outputs:
+      prompt_validation: ${{ steps.prompt_validation.outputs.validation }}
+      disc_body: ${{ steps.prompt.outputs.disc_body }}
+      disc_title: ${{ steps.prompt.outputs.disc_title }}
+      repo_ID: ${{ steps.prompt.outputs.repo_ID }}
+      disc_labels: ${{ steps.prompt.outputs.disc_labels }}
+      disc_ID : ${{ steps.prompt.outputs.disc_ID }}
+      labels_ID : ${{ steps.label_id.outputs.label_id }}
+      disc_num : ${{ steps.prompt.outputs.disc_num }}
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Get discussion information
+        id: prompt
+        uses: ./actions/discussionworkflow/eventmetadata
+        with:
+          PAT: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validation prompt with schema
+        uses: ./actions/discussionworkflow/promptvalidation
+        id: prompt_validation
+        with:
+          body: ${{ steps.prompt.outputs.disc_body }}
+          title: ${{ steps.prompt.outputs.disc_title }}
+          labels: ${{ steps.prompt.outputs.disc_labels }}
+
+      - name: Get discussion labels ids
+        uses: ./actions/discussionworkflow/labelsinfo
+        id: label_id
+        with:
+          PAT: ${{ secrets.GITHUB_TOKEN }}
+          disc_labels: ${{ steps.prompt.outputs.disc_labels }}    
+
+  Blurb_Discussion:
+    if: needs.get_info.outputs.prompt_validation  == 'valid' 
+    runs-on: self-hosted
+    needs: get_info
+    steps:
+
+      - name: Use Chatgpt Api
+        id: chatgpt
+        uses: ./actions/gptworkflow/gptapi
+        with:
+          api_key: ${{ secrets.API_KEY }}
+          prompt: ${{ needs.get_info.outputs.disc_body }}
+          
+      - name: Debug Labels
+        run: echo "Labels:${{ needs.get_info.outputs.disc_labels }}"
+
+      - name: Create a new GitHub Discussion
+        id: create-discussion
+        uses: abirismyname/create-discussion@v1.1.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          title: ${{ needs.get_info.outputs.disc_title }}
+          body: ${{ steps.chatgpt.outputs.body }}
+          repository-id: ${{ needs.get_info.outputs.repo_ID }}
+          category-id: DIC_kwDOKIIfcc4CYvYw
+          
+      - run: |
+          echo "${{ steps.create-discussion.outputs.discussion-id }}"
+          echo "${{ steps.create-discussion.outputs.discussion-url }}"
+
+      - name: Add label new GitHub Discussion    
+        uses: octokit/graphql-action@v2.x
+        id: add_label
+        with:
+          query: |
+            mutation {
+              addLabelsToLabelable(
+                input:{
+                  labelableId: "${{ steps.create-discussion.outputs.discussion-id }}"
+                  labelIds: ${{ needs.get_info.outputs.labels_ID }}
+                }
+              ) {
+                clientMutationId
+              }
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}    
+
+        

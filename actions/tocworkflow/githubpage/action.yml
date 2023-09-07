@@ -1,0 +1,18 @@
+name: "Extract and Display the Blurb data"
+
+description: "Extract Blurb body of TOC URL's And display the blurb discussion body in HTML page."
+
+inputs:
+  PAT:
+    description: "GitHub repository token"
+    required: false
+  disc_body:
+    description: "URL's of Blurb discussion"
+    required: false
+  repo_name:
+    description: Name of repo
+    required: false
+
+runs:
+  using: "node16"
+  main: "index.js"

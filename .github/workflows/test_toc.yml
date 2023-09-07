@@ -1,0 +1,244 @@
+name: Test TOC Workflow
+
+on:
+  discussion:
+    types:
+      - created
+
+jobs:
+  override_presence:
+    if: >-
+      github.event.discussion.category.name == 'toc'
+    runs-on: self-hosted
+    outputs:
+      override_status: ${{ steps.override_validation.outputs.override_status }}
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: override_check
+        id: override_validation
+        uses: ./actions/discussionworkflow/override/override_test
+      
+      - name: print override status
+        run: echo "${{steps.override_validation.outputs.override_status}}"
+
+  override_fail:
+    if: needs.override_presence.outputs.override_status  == 'absent' 
+    runs-on: self-hosted
+    needs: override_presence
+    outputs:
+      prompt_validation: ${{ steps.prompt_validation.outputs.validation }}
+      invalid_reasons: ${{ steps.prompt_validation.outputs.invalid_reasons }}
+      toc_body: ${{ steps.toc_info.outputs.toc_body }}
+      toc_title: ${{ steps.toc_info.outputs.toc_title }}
+      repo_ID: ${{ steps.toc_info.outputs.repo_ID }}
+      toc_labels: ${{ steps.toc_info.outputs.toc_labels }}
+      labels_ID : ${{ steps.label_id.outputs.label_id }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Get toc discussion information
+      id: toc_info
+      uses: ./actions/tocworkflow/eventmetadata
+      with:
+        PAT: ${{ secrets.GITHUB_TOKEN }}
+      
+    - name: Validation toc with schema
+      uses: ./actions/discussionworkflow/promptvalidation
+      id: prompt_validation
+      with:
+        body: ${{ steps.toc_info.outputs.toc_body }}
+        title: ${{ steps.toc_info.outputs.toc_title }}
+        labels: ${{ steps.toc_info.outputs.toc_labels }}
+
+    - name: Get toc discussion labels ids
+      uses: ./actions/discussionworkflow/labelsinfo
+      id: label_id
+      with:
+        PAT: ${{ secrets.GITHUB_TOKEN }}
+        disc_labels: ${{ steps.toc_info.outputs.toc_labels }}
+    
+  Document_Discussion:
+    if: needs.override_fail.outputs.prompt_validation  == 'valid' 
+    runs-on: self-hosted
+    needs: override_fail
+    steps:
+      - name: Extract data from url
+        id: url_body
+        uses: ./actions/tocworkflow/githubpage
+        with:
+          disc_body: ${{ needs.override_fail.outputs.toc_body }}
+          PAT: ${{ secrets.GITHUB_TOKEN }}
+          repo_name: ${{ github.repository }}
+
+      - name: Create a new GitHub Document Discussion
+        id: create-discussion
+        uses: abirismyname/create-discussion@v1.1.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          title: ${{ needs.override_fail.outputs.toc_title }}
+          body: ${{ steps.url_body.outputs.url_disc_body }}
+          repository-id: ${{ needs.override_fail.outputs.repo_ID }}
+          category-id: DIC_kwDOKIIfcc4CY9_F
+
+      - name: Add label new GitHub Discussion    
+        uses: octokit/graphql-action@v2.x
+        id: add_label
+        with:
+          query: |
+            mutation {
+              addLabelsToLabelable(
+                input:{
+                  labelableId: "${{ steps.create-discussion.outputs.discussion-id }}"
+                  labelIds: ${{ needs.override_fail.outputs.labels_ID }}
+                }
+              ) {
+                clientMutationId
+              }
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
+  invalid_document_discussion:
+    if: needs.override_fail.outputs.prompt_validation  == 'invalid' 
+    runs-on: self-hosted
+    needs: override_fail
+    steps:
+    - name: Create a new GitHub Discussion
+      id: create-error-discussion
+      uses: abirismyname/create-discussion@v1.1.0
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        title: "ERROR"
+        body: ${{ needs.override_fail.outputs.invalid_reasons }}
+        repository-id: ${{ needs.override_fail.outputs.repo_ID }}
+        category-id: DIC_kwDOKIIfcc4CY9_F
+
+    - name: Add label new GitHub Discussion    
+      uses: octokit/graphql-action@v2.x
+      id: add_label
+      with:
+        query: |
+          mutation {
+            addLabelsToLabelable(
+              input:{
+                labelableId: "${{ steps.create-error-discussion.outputs.discussion-id }}"
+                labelIds: ["LA_kwDOKIIfcc8AAAABXPsDjg"]
+              }
+            ) {
+              clientMutationId
+            }
+          }
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+
+  override_pass:
+    if: needs.override_presence.outputs.override_status  == 'present' 
+    needs: override_presence
+    runs-on: self-hosted
+    outputs:
+      if_missing: ${{ steps.get_override_info.outputs.if_missing }}
+      Missing: ${{ steps.get_override_info.outputs.Missing }}
+      override_title: ${{ steps.get_override_info.outputs.override_title }}
+      override_labels: ${{ steps.get_override_info.outputs.override_labels }}
+      override_body: ${{ steps.get_override_info.outputs.override_body }}
+      label_id: ${{ steps.get_override_info.outputs.label_id }}
+      override_repo_id: ${{ steps.get_override_info.outputs.override_repo_id }}
+      
+   
+    steps:
+      - name: get information from override section
+        id: get_override_info
+        uses: ./actions/discussionworkflow/override/pass_override
+        with:
+          PAT: ${{ secrets.GITHUB_TOKEN }}
+          repo_name: ${{ github.repository }}
+
+  everything-ok:
+    needs: override_pass
+    if: needs.override_pass.outputs.if_missing  == 0
+    runs-on: self-hosted
+    steps:
+      - name: Get toc discussion information
+        id: toc_info
+        uses: ./actions/tocworkflow/eventmetadata
+        with:
+          PAT: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract data from url
+        id: url_body
+        uses: ./actions/tocworkflow/githubpage
+        with:
+          disc_body: ${{ needs.override_pass.outputs.override_body }}
+          PAT: ${{ secrets.GITHUB_TOKEN }}
+          repo_name: ${{ github.repository }}
+
+      - name: Create a new GitHub Document Discussion
+        id: create-discussion
+        uses: abirismyname/create-discussion@v1.1.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          title: ${{ needs.override_pass.outputs.override_title }}
+          body: ${{ steps.url_body.outputs.url_disc_body }}
+          repository-id: ${{ needs.override_pass.outputs.override_repo_id }}
+          category-id: DIC_kwDOKIIfcc4CY9_F
+
+      - name: Add label new GitHub Discussion    
+        uses: octokit/graphql-action@v2.x
+        id: add_label
+        with:
+          query: |
+            mutation {
+              addLabelsToLabelable(
+                input:{
+                  labelableId: "${{ steps.create-discussion.outputs.discussion-id }}"
+                  labelIds: ${{ needs.override_pass.outputs.label_id }}
+                }
+              ) {
+                clientMutationId
+              }
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
+  everything-not-ok:
+    needs: override_pass
+    if: needs.override_pass.outputs.if_missing  != 0
+    runs-on: self-hosted
+    steps:
+
+      - name: Create a new GitHub Discussion
+        id: create-discussion
+        uses: abirismyname/create-discussion@v1.1.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          title: "ERROR"
+          body: ${{ needs.override_pass.outputs.Missing }}
+          repository-id: ${{ needs.override_pass.outputs.override_repo_id }}
+          category-id: DIC_kwDOKIIfcc4CY9_F
+
+      - name: Add label new GitHub Discussion    
+        uses: octokit/graphql-action@v2.x
+        id: add_label
+        with:
+          query: |
+            mutation {
+              addLabelsToLabelable(
+                input:{
+                  labelableId: "${{ steps.create-discussion.outputs.discussion-id }}"
+                  labelIds: ["LA_kwDOKIIfcc8AAAABXPsDjg"]
+                }
+              ) {
+                clientMutationId
+              }
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

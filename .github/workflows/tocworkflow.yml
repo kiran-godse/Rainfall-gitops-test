@@ -1,0 +1,39 @@
+name: TOC Workflow
+
+on:
+  discussion:
+    types:
+      - created
+
+jobs:
+  tocdiscussion:
+    if: >-
+      github.event.discussion.category.name == 'toc'
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Get url from discussions
+        id: get_urls
+        uses: ./actions/tocworkflow/urllinks
+    
+      - name: Extract data from Blurb discussion body 
+        id: blurb_disc
+        uses: ./actions/tocworkflow/githubpage
+        with:
+            tocurl: ${{ join(steps.get_urls.outputs.toc_url, ',') }}
+            toctitle: ${{ steps.get_urls.outputs.toc_title }}
+            PAT: ${{ secrets.GITHUB_TOKEN }}
+            
+      - name: Update output.json
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add output.json
+          git commit -m "Update output.json"
+          git remote set-url origin https://github.com/${{ github.repository }}.git
+          git push --quiet --set-upstream origin ${{ github.ref }}
+        env:
+          PAT: ${{ secrets.GITHUB_TOKEN }}
+      

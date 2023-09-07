@@ -1,0 +1,10 @@
+name: 'Process Discussion Comment'
+description: 'Process a comment added to a discussion on GitHub'
+inputs:
+  github-context:
+    description: 'The GitHub context payload'
+    required: true
+
+runs:
+  using: 'node16'
+  main: 'index.js'

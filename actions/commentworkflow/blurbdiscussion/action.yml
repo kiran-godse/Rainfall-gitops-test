@@ -1,0 +1,18 @@
+name: Update Blurb 
+
+description: Update the Blurb with new response
+
+inputs:
+  discussionId:
+    description: "The discussion ID of the discussion"
+    required: true
+  PAT:
+    description: "Personal access tokens for authentication to GitHub when using the GitHub API"
+    required: true
+  updatedbody:
+    description: "The blurb_body which will be used to update the blurb content"
+    required: true
+
+runs:
+  using: "node16"
+  main: "index.js"

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Github Discussion</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+        
+        .content {
+            max-width: calc(100vw - 40px); 
+            margin: 0 auto; 
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1 id="titleHeading">Title Placeholder</h1>
+    <div id="jsonContent"></div>
+
+    <script>
+        
+        fetch('output.json')
+            .then(response => response.json())
+            .then(data => {
+                const jsonContentElement = document.getElementById('jsonContent');
+                const titleHeading = document.getElementById('titleHeading');
+
+                
+                const tittocValue = data['toctitle'];
+                titleHeading.textContent = tittocValue;
+
+                
+                for (const key in data) {
+                    if (key !== 'toctitle') {
+                        const value = data[key];
+
+                        const heading = document.createElement('h2');
+                        heading.textContent = key;
+
+                        const preElement = document.createElement('pre');
+                        preElement.textContent = value;
+
+                        jsonContentElement.appendChild(heading);
+                        jsonContentElement.appendChild(preElement);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching JSON data:', error);
+            });
+    </script>
+</body>
+</html>
